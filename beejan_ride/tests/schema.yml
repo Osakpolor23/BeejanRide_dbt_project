@@ -1,0 +1,19 @@
+data_tests:
+  - name: assert_completed_trip_has_payment
+    description: >
+      Completed trips (i.e trips with status = 'completed') must have at least
+      a corresponding successful payment i.e where payment_status = 'success' .
+      This test fails if the script returns a record i.e a completed trip doesn't have
+      any successful payment record.
+
+  - name: assert_completed_trip_duration_greater_than_zero_minutes
+    description: >
+      Trip duration must be greater than zero (0) minutes.
+      This test fails if the script returns a record i.e trip ids with trip duration lesser than
+      or equal to zero minutes.
+
+  - name: assert_no_negative_revenue
+    description: >
+      Net revenue must never be negative.
+      This test fails if the script returns a record i.e records where the net revenue is negative.
+  

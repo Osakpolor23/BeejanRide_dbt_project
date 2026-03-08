@@ -1,0 +1,295 @@
+sources:
+  - name: beejanride_raw_dataset
+    description: "This is the raw data ingested from the transactional database"
+    database: beejanride-488809
+    schema: beejanride_raw_dataset
+
+    tables:
+      - name: cities_raw
+        description: "This contains the unique cities where beejanride company is fully operational"
+        columns:
+          - name: city_id
+            description: "Unique identifier for each city in the cities_raw table"
+            data_tests:
+              - unique
+              - not_null
+
+          - name: city_name
+            description: "Name of the city where BeejanRide operates"
+            data_tests:
+              - not_null
+
+          - name: country
+            description: "The country in which the city is located"
+            data_tests:
+              - not_null
+
+          - name: launch_date
+            description: "The date BeejanRide was launched in this city"
+            data_tests:
+              - not_null
+
+      - name: driver_status_events_raw
+        description: "Events tracking driver status changes"
+        columns:
+          - name: event_id
+            description: "Unique identifier for each driver status event"
+            data_tests:
+              - unique
+              - not_null
+
+          - name: driver_id
+            description: "Identifier linking an event to a specific driver"
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('drivers_raw')
+                    field: driver_id
+
+          - name: status
+            description: "Driver's status at the time of the event (online or offline)"
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['online', 'offline']
+
+          - name: event_timestamp
+            description: "Timestamp when the driver status event occurred"
+            data_tests:
+              - not_null
+            
+      - name: drivers_raw
+        description: "This contains drivers' information who have been onboarded on BeejanRide"
+        columns:
+          - name: driver_id
+            description: "Unique identifier for each driver"
+            data_tests:
+              - unique
+              - not_null
+
+          - name: onboarding_date
+            description: "Date the driver was onboarded on BeejanRide"
+            data_tests:
+              - not_null
+
+          - name: driver_status
+            description: "Current status of the driver (active / suspended / inactive)"
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['active', 'suspended', 'inactive']
+
+          - name: city_id
+            description: "Identifier for the city where the driver operates."
+            data_tests:
+              - not_null
+
+          - name: vehicle_id
+            description: "Identifier for the current vehicle assigned to the driver."
+            data_tests:
+              - not_null
+
+          - name: rating
+            description: "Average rating of the driver."
+            data_tests:
+              - not_null
+
+          - name: created_at
+            description: "Timestamp when the driver record was created."
+            data_tests:
+              - not_null
+
+          - name: updated_at
+            description: "Timestamp when the driver record was last updated."
+            data_tests:
+              - not_null
+
+      - name: payments_raw
+        description: "Contains raw payment transaction data including status, provider, and financial details."
+        columns:
+          - name: payment_id
+            description: "Unique identifier for each payment transaction."
+            data_tests:
+              - not_null
+              - unique
+
+          - name: trip_id
+            description: "Identifier of the trip associated with the payment."
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('trips_raw')
+                    field: trip_id
+
+          - name: payment_status
+            description: "Status of the payment (success or failed)."
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['success', 'failed']
+
+          - name: payment_provider
+            description: "Payment provider used for the transaction (e.g., Stripe, PayPal)."
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['stripe', 'paypal']
+                     
+          - name: amount
+            description: "Charged amount for the trip."
+            data_tests:
+              - not_null
+
+          - name: fee
+            description: "Processing fee charged by the provider."
+            data_tests:
+              - not_null
+
+          - name: currency
+            description: "Currency in which the payment was made."
+            data_tests:
+              - not_null
+              
+          - name: created_at
+            description: "Timestamp when the payment was recorded."
+            data_tests:
+              - not_null
+              
+      - name: riders_raw
+        description: "Master record of riders with signup date, country, referral codes, and timestamps."
+        columns:
+          - name: rider_id
+            description: "Unique identifier for each rider."
+            data_tests:
+              - not_null
+              - unique
+          
+          - name: signup_date
+            description: "Date the rider signed up on the BeejanRide platform."
+            data_tests:
+              - not_null
+          
+          - name: country
+            description: "Country of the rider at signup."
+            data_tests:
+              - not_null
+          
+          - name: referral_code
+            description: "Referral code used during signup, if any."
+          
+          - name: created_at
+            description: "Timestamp when the rider record was created."
+            data_tests:
+              - not_null
+
+      - name: trips_raw
+        description: "Master record of trips with identifiers, lifecycle timestamps, status, fare details, and payment method."
+        config:
+          freshness: # newests record in trips_raw must < 2hours old
+            warn_after: {count: 1, period: hour}
+            error_after: {count: 2, period: hour}
+            loaded_at_field: updated_at
+        columns:
+          - name: trip_id
+            description: "Unique identifier for each trip."
+            data_tests:
+              - not_null
+              - unique
+
+          - name: rider_id
+            description: "Identifier of the rider associated with the trip." 
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('riders_raw')
+                    field: rider_id
+
+          - name: driver_id
+            description: "Identifier of the driver associated with the trip."
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('drivers_raw')
+                    field: driver_id
+          
+          - name: vehicle_id
+            description: "Identifier of the vehicle used for the trip." 
+            data_tests:
+              - not_null
+          
+          - name: city_id
+            description: "Identifier of the city where the trip took place."
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('cities_raw')
+                    field: city_id
+          
+          - name: requested_at
+            description: "Timestamp when the ride was requested."
+            data_tests:
+              - not_null
+          
+          - name: pickup_at
+            description: "Timestamp when the rider was picked up."
+            data_tests:
+              - not_null
+          
+          - name: dropoff_at
+            description: "Timestamp when the rider was dropped off."
+            data_tests:
+              - not_null
+          
+          - name: status
+            description: "Trip status (completed, cancelled, no_show)."
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['completed', 'cancelled', 'no_show']
+          
+          - name: estimated_fare
+            description: "Initial fare estimate for the trip."
+            data_tests:
+              - not_null
+          
+          - name: actual_fare
+            description: "Final fare charged for the trip." 
+            data_tests:
+              - not_null
+
+          - name: surge_multiplier
+            description: "Surge pricing multiplier applied to the trip."
+          
+          - name: payment_method
+            description: "Payment method used (card, wallet, cash)."
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['card', 'wallet', 'cash']
+          
+          - name: is_corporate
+            description: "Boolean flag indicating if the trip was corporate-sponsored."
+            data_tests:
+              - not_null
+
+          - name: created_at
+            description: "Timestamp when the trip record was created."
+            data_tests:
+              - not_null
+              
+          - name: updated_at
+            description: "Timestamp when the trip record was last updated."
+            data_tests:
+              - not_null
+        

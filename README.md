@@ -29,4 +29,17 @@ This is where majority of the heavy-lifting was done to suit the business use ca
 - Fraud indicators: duplicate payments, failed payment on completed trip, extreme surge multiplier (>10).
 
 ### 4. Marts
+This workstep involved organizing the data in a star schema with fact and dimension tables for easy BI consumption.
+- Fact Table: facts_trips (trip grain, measures + fraud flags).
+- Dimensions: dim_drivers, dim_riders, dim_cities.
 
+### 5. Snapshots
+Other considerations included having a snapshot to track slowly changing dimensions(SCD) like driver status, vehicle assignments and rating updates. The default dbt SCD type 2 snapshot was used for the drivers on the drivers table, but this was done on an ephemeral materialization so as to first carry out some transformations on the raw drivers table, without materializing it on the data warehouse before a snapshot is applied thereby saving compute cost and size.
+
+
+### Design Decisions
+During the cause of the project, some design decisions were taken based on personal judgement and what is sensed to serve the business use case properly. Some of which included:
+- Fraud Indicators in Fact: stored directly in facts_trips instead of having a separate model for fraud analysis. This was to allow for easier querying and eliminate repetition of steps.
+- Single Facts Table: All facts measures consolided at the trip grain.
+- Incremental Model: Used incremental models for high volume tables, so as to avoid the compute cost associated with full refresh.
+- Metadata Governance: Owner and tags applied in marts layer only, keeping staging lean.

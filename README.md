@@ -1,4 +1,4 @@
-# BeejanRide Analytics Modelling Project
+![alt text](<Architectural Diagram.png>)# BeejanRide Analytics Modelling Project
 BeejanRide is a fast‑growing UK mobility startup operating in 5 cities, offering ride‑hailing, airport transfers, and scheduled corporate rides.
 This project implements a scalable, well‑tested, documented, and production‑ready analytics platform using dbt on top of a modern data stack.
 

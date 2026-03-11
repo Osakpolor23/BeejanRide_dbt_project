@@ -33,13 +33,62 @@ This workstep involved organizing the data in a star schema with fact and dimens
 - Fact Table: facts_trips (trip grain, measures + fraud flags).
 - Dimensions: dim_drivers, dim_riders, dim_cities.
 
-### 5. Snapshots
+## Snapshots
 Other considerations included having a snapshot to track slowly changing dimensions(SCD) like driver status, vehicle assignments and rating updates. The default dbt SCD type 2 snapshot was used for the drivers on the drivers table, but this was done on an ephemeral materialization so as to first carry out some transformations on the raw drivers table, without materializing it on the data warehouse before a snapshot is applied thereby saving compute cost and size.
 
 
-### Design Decisions
+## Design Decisions
 During the cause of the project, some design decisions were taken based on personal judgement and what is sensed to serve the business use case properly. Some of which included:
 - Fraud Indicators in Fact: stored directly in facts_trips instead of having a separate model for fraud analysis. This was to allow for easier querying and eliminate repetition of steps.
 - Single Facts Table: All facts measures consolided at the trip grain.
-- Incremental Model: Used incremental models for high volume tables, so as to avoid the compute cost associated with full refresh.
+- Incremental Model: Used incremental models for high volume tables, so as to avoid the compute cost associated with full refresh. This of course reduces the build time in transforming new records by limiting the data that needs to be transformed and invariably reducing compute cost and improving warehouse performance everytime the model is run as against making use of full refresh. However, this comes with the drawback of requiring extra configuration.
 - Metadata Governance: Owner and tags applied in marts layer only, keeping staging lean.
+
+## Incremental Models vs Tables(Full refresh)
+As previously stated, incremental models are useful for models requiring complex transformations and heavy data. This helps to transform just the new records that are added to the table using the rows that  in your source data that you tell dbt to filter for, inserting them into the target table which is the table that has already been built. Often, the rows you filter for on an incremental run will be the rows in your source data that have been created or updated since the last time dbt ran. As such, on each dbt run, your model gets built incrementally. This is done by adding a 'unique key' to the incremental model configuration. By doing this, the old records in the table are updated since the last run, while new unique records are inserted. In summary, it typically does a merge and insert command on bigquery.
+
+Using an incremental model limits the amount of data that needs to be transformed, vastly reducing the runtime of your transformations. This improves warehouse performance and reduces compute costs. This often come at a cost of extra configurations in the setup and sometimes having to make do with delayed queues of new data.
+
+Full refresh on the other hand is used for a model that has been materialized as a table on the data warehouse and is used to get dbt to rebuild the model again by dropping the table(albeit silently) and creating it again from scratch so as to have new records in the table. Tables are however very quick to query by BI tools as it is more or less static until, but this can take a long time to build especially those involving complex transformations.
+
+## Future Improvements
+This modelling project was a learning curve for me and not one devoid of areas requiring improvements and future expansion. One that easily comes to mind is having a vehicle dimension table that possesses attributes regarding the vehicle type, licence number, model etc used for a trip -- since a vehicle id is already present in the fact table. It will also make a lot of sense to orchestrate the whole workflow using an orchestrator for a seamless process.
+
+## Sample Analytical Queries
+Some of the analytical queries that can be used to get reporting insights from the final serving models includes:
+
+### TOP DRIVERS BY REVENUE
+```
+    select
+        d.driver_id
+        , d.city_id
+        , d.rating
+        , sum(f.net_revenue) as total_driver_revenue
+    from {{ ref('facts_trips') }} f
+    join {{ ref('dim_drivers') }} d
+    on f.driver_id = d.driver_id
+    where f.status = 'completed'
+    group by d.driver_id, d.city_id, d.rating
+    order by total_driver_revenue desc
+    limit 10
+```
+
+### FRUAD DETECTION INSIGHTS
+
+```
+select
+    f.trip_id,
+    f.city_id,
+    f.driver_id,
+    f.rider_id,
+    f.duplicate_payment_flag,
+    f.failed_payment_on_completed_trip,
+    f.extreme_surge_flag
+from {{ ref('facts_trips') }} f
+where f.duplicate_payment_flag = 'Y'
+    or f.failed_payment_on_completed_trip = 'Y'
+    or f.extreme_surge_flag = 'Y'
+```
+
+### CONTRIBUTIONS
+Feel free to make corrections, provide recommendations and other necessary contributions to scale up this project. Best Regards...

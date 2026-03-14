@@ -61,19 +61,19 @@ This workstep involved organizing the data into a star schema with fact and dime
 
 The lineage of the data models created can be found be running the commands:
 
-``
+```
 
     dbt docs generate
 
-``
+```
 
 Then to display on a browser;
 
-``
+```
 
     dbt docs serve
 
-``
+```
 
 ### Lineage Graph
 
@@ -157,26 +157,26 @@ These could be found on the analyses directory.
 ### SETUP
 **1** Create a project directory on vscode and then create and activate python environment using:
 
-``
+```
 
     python -m venv .venv
 
-``
+```
 
 activate:
 
-``
+```
 
     source venv/Scripts/activate
 
-``
+```
 
 **2** While in the environment, install dbt-core and bigquery adapter(or the adapter of any data warehouse you want to use) by running the command:
-``
+```
 
     python -m pip install dbt-core dbt-bigquery
 
-``
+```
 
 **3** Sign in to the [GCP platform](console.cloud.google) and create a new project
 
@@ -190,11 +190,11 @@ activate:
 
 **8** On the bash terminal, with the virtual environment activated run this to initialialize the dbt boostrapper.
 
-``
+```
 
     dbt init
 
-``
+```
 
 Follow the prompts and provide the right responses such as dbt project name, bigquery for database,service account for authenticatication method, json key file path(just right-click on the json key in your project directory and copy the full file path), ensure you choose the same location as your dataset on bigquery and click on enter button to select default values for some prompts where applicable e.g job execution timeout seconds.
 When completed, dbt creates a new dbt directory with some other sub-directories like seeds, macros, models, tests, etc
@@ -204,11 +204,11 @@ A .dbt file is also created outside of the parent directory and when navigated i
 **9** Testing the dbt connection
 Navigate to the created dbt project directory after initialization and run the command:
 
-``
+```
 
     dbt debug
 
-``
+```
 
 This shows passed when the connection is done right.
 

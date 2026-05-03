@@ -142,6 +142,7 @@ Additional data quality checks included building custom tests that speaks to spe
 ## Orchestration with Apache Airflow
 
 ### Overview
+
 BeejanRide now runs the entire ELT pipeline automatically in production using Apache Airflow as the orchestration layer. Nothing is triggered manually — Airflow schedules, monitors, retries, and alerts on every run end to end.
 
 ### Pipeline Flow
@@ -160,63 +161,237 @@ A deliberate design decision was made to test each dbt layer immediately after i
 ### DAG Screenshots
 
 #### Airflow UI Dags View
+
 The image below shows the view of DAGS in the Airflow UI
 ![Airflow UI Dags View](images/Airflow_UI_Dags.jpg)
 
 #### Successful DAG Run & Email Notification
+
 The images below show successful Dag run as well as the email alert sent on a successful ELT run
-![Airflow UI Dags View](images/Successful_Dag_Run.jpg)
-![Airflow UI Dags View](images/Successful_Dag_Run_Alert.jpg)
+![Successful Dag run View](images/Successful_Dag_Run.jpg)
+
+![Successful Dag run notification View](images/Successful_Dag_Run_Alert.jpg)
 
 #### Failed DAG Run & Email Notification
+
 The images below show failed Dag run as well as the email alert sent on a failed ELT run which was triggered
 by the on_failure_callback dag default argument.
-![Airflow UI Dags View](images/Failed_Dag_Run.jpg)
-![Airflow UI Dags View](images/Failed_Dag_Run_Alert.jpg)
+![Failed Dag run View](images/Failed_Dag_Run.jpg)
+
+![Failed Dag run alert View](images/Failed_Dag_Run_Alert.jpg)
 
 #### Backfill Initialization, Execution and Completion
+
 The images below show the point of initializing the Dag for backfills (in case of missed dag runs), during execution
 and when the backfill execution was successfully completed (which includes details of the timeframe - from and to period
 for the backfill and the duration it took for the run to be completed).
-![Airflow UI Dags View](images/Backfill_Initialization.jpg)
-![Airflow UI Dags View](images/Backfill_Execution.jpg)
-![Airflow UI Dags View](images/Backfill_Completion.jpg)
+
+![Backfill Initialization  View](images/Backfill_Initialization.jpg)
+
+![Backfill Execution View](images/Backfill_Execution.jpg)
+
+![Backfill Completion View](images/Backfill_Completion.jpg)
 
 ### Key Design Decisions
 
 **Scheduling**
+
 The DAG is scheduled to run at 1 am everyday using the cron expression `0 1 * * *` . This is to prevent manual
 triggers at any point. The pipeline runs fully automatically in production.
  
 **Retries**
+
 Every task is configured with 3 retries and a 15-second retry delay which is exponentially increased between each failed attempt
 i.e the wait period for a retry is doubled with respect to the retry delay period of the previously failed attempt, therefore giving the 
 failed task ample time to recover from any minor glitch that must have resulted in the task failing which includes transient failures such as network timeouts, temporary Airbyte unavailability, or brief BigQuery disruptions, without requiring any human intervention.
 
 **Failure Handling**
+
 A custom `on_failure_callback` defined in a dedicated `callbacks.py` file fires automatically whenever any task in the DAG fails. It sends an email alert containing the DAG name, the failed task ID, the execution date, and a direct link to the task logs for quick debugging. Separating this into its own file keeps the main DAG clean and makes the callback reusable across multiple DAGs in future.
  
 **Testing Per Layer**
+
 dbt tests run immediately after each individual layer — staging, intermediate — rather than once at the very end of the pipeline.
 This means a data quality issue is caught at the earliest possible point and downstream layers are never built on top of bad data.
 
 **Separation of Concerns**
+
 The failure callback logic lives in its own `callbacks.py` file rather than inline in the DAG. The alert email address is stored as an environment variable (`ALERT_EMAIL`) in a `.env` file and never hardcoded, ensuring no sensitive information is exposed when pushing
 to GitHub.
 
 **Backfills**
+
 `catchup=True` is configured on the DAG, meaning Airflow will automatically backfill any scheduled runs that were missed if the pipeline was down. Backfills can also be triggered manually via the Airflow UI when needed.
 
 **Monitoring**
+
 The DAG includes descriptive tags (`beejanride`, `analytics`), a `doc_md` docstring visible in the Airflow UI, and email alerts for both success and failure thereby giving full visibility into every run without needing to log into the Airflow UI manually.
 
 ### Idempotency In Airflow
+
 This means that running the same pipeline dag multiple times produces the same result with no duplicate data and no side effects from re-runs. Whether the DAG runs once or ten times for the same time period, the output should always be identical.
 In this project, the dag argument max_active_runs=1 on the DAG ensures that only one DAG run can execute at any given time. If a scheduled run is still in progress when the next one is due to start, the new one waits. This prevents two runs from writing to the same BigQuery tables simultaneously, which would cause data corruption or duplication.
+
+### Running Locally with Docker
  
+**Prerequisites**
+
+- Docker & Docker Compose installed
+- A `.env` file configured based on `.env.example`
+- A Google Cloud service account JSON key file
+
+**Start Airflow**
+
+```bash
+cd Airflow && docker compose up -d
+```
+ 
+**Access the Airflow UI**
+
+```
+URL:      http://localhost:8080
+Username: airflow
+Password: airflow
+```
+ 
+### Connections to configure in the Airflow UI
+
+- `airbyte_conn`: This was done using the airbyte cloud api by following the steps listed below: 
+    - On the Airflow UI, navigate to Admin ---> Connections
+    - On the Top Right, click on "Add Connection"
+    - Connection ID - "airbyte_conn" (Or any name you desire)
+    - Connection Type - Airbyte (More details about this under challenges)
+    - Standard Fields
+        - description: Give it any befitting description(optional)
+        - Host: https://api.airbyte.com/v1/
+        - Client ID: Go to your airbyte cloud connection page, navigate to user profile(bottom left) and click on Applications --? Create/Add Application and add a name e.g Airflow sync. Then Copy the Client ID and Client Secret
+        - Client Secret: Gotten from Airbyte Cloud Connection
+        - Token URL: v1/applications/token (Optional Field)
+    - Extra Fields: Leave Blank
+
+Learn More Here using the official docs: [Airbyte Connection with Airflow](https://airflow.apache.org/docs/apache-airflow-providers-airbyte/stable/operators/airbyte.html)
+
+Also note that you must have apache-airflow-providers-airbyte installed on your container instance or environment(if not using airflow running in docker) to have access to the Airbyte Provider(Connection Type) by running:
+
+```bash
+ pip install pip install apache-airflow-providers-airbyte
+```
+NB: Details on the challenges I faced on this and how it was resolved under Challenges and Resolutions
+
+NB: Connecting Airflow with Airbyte running on a container on Local Host is slightly different. You can get a some tips from this Medium post: [Orchestrate Airbyte Using Apache Airflow by Rajesh Ku. Rout](https://medium.com/apache-airflow/orchestrate-airbyte-using-apache-airflow-f410e7c8eb02)
+
+NB: Irrespective of the airbyte method used, to get your connection ID to be used in your DAG file, simply go to the URL of your airbyte connection and copy the alphanumeric digits in between the forward slashes after 'connection'(in the URL).
+
+
+- `smtp` — This was done using the SMTP connection for email alerts by following the steps listed below:
+    - On the Airflow UI, navigate to Admin ---> Connections
+    - On the Top Right, click on "Add Connection"
+    - Connection ID - "smtp" (Or any name you desire)
+    - Connection Type - SMTP
+    - Standard Fields
+        - description: Give it any befitting description(optional)
+        - Host: smtp.gmail.com (If trying to configure for the gmail server for the sender email)
+        - Login: The email address of the sender email(e.g your_email@gmail.com)
+        - Password: To get the unique password that gains access to your email, go to myaccount.google.com. Navigate to Security and then "App passwords" and name it Airflow(or anything). A unique 16-character password will be generated by google. Copy that and use as the password.
+        - Ports: 465 (This is the port for SSL Connection)
+    - Extra Fields:
+        - From email: your_email@gmail.com(This can also be specified in your task instance in  your dag file)
+        - Disable TLS: Toggle this on since SSL was used
+        ... leave other parameters as default
+
+NB: The smtp connection is then used in the send email notification task instance using the connection id "smtp" (As specified in the UI).
+
+### Challenges and Resolutions
+
+The orchestration project with apache airflow went beyond just orchestrating tasks for me as it tested and reinforced my understanding of linux, containerization using docker and troubleshooting ny studying logs. Listed and explained below were some of the challenges I faced and how I was able to get them resolved:
+
+- Installing apache-airflow-providers-airbyte: I had issues seeing my airbyte provider amongst the providers even after running the command:
+
+```bash
+ pip install pip install apache-airflow-providers-airbyte
+```
+My dag file kept having a Dag Import Error with the error message "Module Named airflow.providers.airbyte.operators.airbyte not found" This was as a result of my airbyte provider getting installed in my venv environment but not being installed into my airflow container instances during build time. The providers installed at build time were the default airflow standard providers and plugins as indicated in the docker-compose.yaml file, so I had to find a way to install the packages I need inside each airflow container instances during the build time.
+
+NB: I had this issue because I was running the Airflow instances on docker. This doesn't surface when not using a containerized Airflow (e.g Airflow installed using pip install in wsl or ubuntu).
+
+This was reslved by creating a requirements.txt file and listing all the packages I want installed in each containers and then mounting the requirements.txt file path as a volume e.g
+
+```bash
+ # Just added this line for it to automatically also install from my requirements.txt
+    - ${AIRFLOW_PROJ_DIR:-.}/requirements.txt:/requirements.txt
+```
+Then in each services(api-server, scheduler etc), the command was forced to first install the packages from the requirements.txt file before starting the services. An example of how that was done in the compose.yaml is shown below:
+
+```bash
+command: bash -c "pip install --no-cache-dir -r /requirements.txt && exec airflow api-server"
+
+command: bash -c "pip install --no-cache-dir -r /requirements.txt && exec airflow scheduler"
+```
+
+After then, the containers were stopped and restarted using the commands:
+
+```bash
+ docker compose down && docker compose up --build -d
+```
+
+NB: This made the start time of each container instances really slow as they had to first install from the requirements.txt file before starting the container services. The logs of everything could be seen by checking the logs of one of the containers using:
+
+```bash
+ docker logs airflow-airflow-scheduler-1
+```
+
+- Pointing Airflow Instance to local dbt project: The first challenge I encounted was how to make my dbt project which was domiciled on my Windows Host visible to my Airflow container instance ( Recall containers are isolated environments which by default has no access to local system paths). Here the knowledge of volumes in docker came into play. I bind mounted my dbt project path to a path inside my airflow container so that my airflow instance will have access to that local host path and resources docimiciled there. This was done under the volumes section in the docker-compose.yaml file. Subsequent references that required the project path in the dag file made use of the container path and not the host path.
+Another mistake I made during bind mounting was mounting my .dbt/ local path to /opt/airflow/.dbt container path which constantly made my dbt tasks to fail in my airflow UI with the error message that /home/airflow/.dbt was not found as it checks that path by default. I had to change my conatiner path to /home/airflow/.dbt. Examples of the mounted volumes are shown below:
+
+```bash
+        # DBT Project Mount
+        - /c/Users/HP/beejanride_dbt_project/beejan_ride:/opt/airflow/beejanride_dbt_project
+        - /c/Users/HP/data_engineering_mastery/dbt_process/dbt_learn_osas:/opt/airflow/dbt_learn_osas
+
+        # DBT profiles.yaml path Mount
+        - /c/Users/HP/.dbt:/home/airflow/.dbt
+```
+To verify and check what could be seen inside the container, you can exeucute into one of the containers and run linux commands like ls, cd, cat etc using:
+
+```bash
+ docker exec -it airflow-airflow-scheduler-1 bash
+```
+
+- Container, Linux and Windows file path mismatch: After my airbyte provider was resolved and the host file paths was properly mounted to a container file path, the dbt tasks kept failing with the error message "/home/airflow/.dbt does not exist" even after the .dbt/ directory could be found when I execute into one of the container and navigate to that file path i.e /home/airflow/.dbt and the profiles.yaml file found in that directory. It turned out that because the keyfile path in my profiles.yaml (that is the path to my service account json key) was in Windows format e.g  C:\Users\HP\beejanride_dbt_project\beejanride-488809-e72664339e39.json thereby while the container service expected a container file path (Note: I initially changed it into a linux file path e.g /c/Users/beejanride_dbt_project/beejanride-488809-e72664339e39.json but it still failed). The final resolution was to change the path to a conatiner file path e.g /opt/airflow/beejanride_dbt_project/beejanride-488809-e72664339e39.json before it worked as the conatiner service could only understand the conatiner file path.
+NB: This was done in my .dbt/profiles.yaml inside my local host and the changes immediately reflected inside the container path because it was mounted to it and changes to that path in the local host gets seen inside the container - the beauty and power of volumes.
+
+Finally, I could run test dbt commands inside my container to be sure that it will run and will no longer fail in my Airflow UI with test commands like:
+
+```bash
+    dbt run --select staging \
+  --project-dir /opt/airflow/beejanride_dbt_project \
+  --profiles-dir /home/airflow/.dbt
+```
+
+This finally executed the dbt command successfuly.
+
+- Using env variables for my email address: I needed to make a tweak to my DAG file after it was running successfully end-to-end after it was running successfully such that instead of hardcoding my email address for alerts, I needed to put it inside the .env file and pass it to a variable in my dag file so that it gets used at the task instances runtime. This started to fail as my newly added parameter in my .env file was not found by the services as the initial values was already loaded at start up. I had to add the email variable to the environment section in the docker-compose.yaml file and then restarted the container so as to include the environment variable at the start up of the conatainers using:
+
+
+```bash
+    docker compose down && docker compose up --build -d   
+```
+An example of how the environment was done is seen below:
+
+```bash
+    environment:
+        &airflow-common-env
+        AIRFLOW__CORE__EXECUTOR: LocalExecutor
+        ...
+        ALERT_EMAIL: ${ALERT_EMAIL}
+```
 
 ## Future Improvements
-This modelling project was a learning curve for me and not one devoid of areas requiring improvements and future expansion. One that easily comes to mind is having a vehicle dimension table that possesses attributes regarding the vehicle type, licence number, model etc used for a trip -- since a vehicle id is already present in the fact table.
+- Adding a vehicle dimension table with attributes such as vehicle type, licence number,
+  and model — a vehicle ID is already present in the fact table.
+- Adding a data freshness check task before dbt runs to confirm Airbyte ingestion succeeded.
+- Slack notifications in addition to email alerts for faster team response.
+- A monitoring dashboard for DAG run history and SLA breach tracking.
 
 ## Sample Analytical Queries
 Some of the analytical queries that can be used to get reporting insights from the final serving models includes:

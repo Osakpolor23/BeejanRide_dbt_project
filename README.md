@@ -2,9 +2,35 @@
 BeejanRide is a fast‑growing UK mobility startup operating in 5 cities, offering ride‑hailing, airport transfers, and scheduled corporate rides.
 This project implements a scalable, well‑tested, documented, and production‑ready analytics platform using dbt on top of a modern data stack. Bigquery was used as the data warehouse.
 
+### Project Structure
+
+```
+beejan_ride/
+├── analysis/
+├── macros/
+├── models/                                   
+├── seeds/
+├── snapshots/
+├── tests/
+├── .gitignore
+├── README.md
+├── dbt_project.yml
+│
+├── Airflow/                            # Airflow orchestration layer
+│   ├── dags/
+│   │   └── beejanride_orchestration/
+│   │       ├── beejanride_orchestration.py   # main DAG file
+│   │       └── callbacks.py                  # failure callback (separated for clean concerns)
+│   ├── docker-compose.yml
+│   ├── requirements.txt
+│   └── .env.example                          # mirror of my .env file
+│
+└── images/                                   # screenshots & diagrams
+```
+
 ## Architectural Diagram
 
-![Architectural Diagram](images/Architectural%20Diagram.gif)
+![Architectural Diagram](images/Architectural_Diagram.gif)
 
 ## Data Flow Illustration
 
@@ -113,8 +139,84 @@ Additional data quality checks included building custom tests that speaks to spe
 
 - [singular data test](https://docs.getdbt.com/docs/build/data-tests?version=1.12)
 
+## Orchestration with Apache Airflow
+
+### Overview
+BeejanRide now runs the entire ELT pipeline automatically in production using Apache Airflow as the orchestration layer. Nothing is triggered manually — Airflow schedules, monitors, retries, and alerts on every run end to end.
+
+### Pipeline Flow
+ 
+The DAG runs automatically every day at 01:00 UTC following this task sequence:
+
+```
+airbyte_sync
+    → dbt_run_staging      → dbt_test_staging
+    → dbt_run_intermediate → dbt_test_intermediate
+    → dbt_run_marts        → send_success_email
+```
+
+A deliberate design decision was made to test each dbt layer immediately after it runs rather than testing everything at the end. This ensures that a failure in staging stops the pipeline before bad data can propagate into intermediate or marts, enforcing data quality at every layer.
+
+### DAG Screenshots
+
+#### Airflow UI Dags View
+The image below shows the view of DAGS in the Airflow UI
+![Airflow UI Dags View](images/Airflow_UI_Dags.jpg)
+
+#### Successful DAG Run & Email Notification
+The images below show successful Dag run as well as the email alert sent on a successful ELT run
+![Airflow UI Dags View](images/Successful_Dag_Run.jpg)
+![Airflow UI Dags View](images/Successful_Dag_Run_Alert.jpg)
+
+#### Failed DAG Run & Email Notification
+The images below show failed Dag run as well as the email alert sent on a failed ELT run which was triggered
+by the on_failure_callback dag default argument.
+![Airflow UI Dags View](images/Failed_Dag_Run.jpg)
+![Airflow UI Dags View](images/Failed_Dag_Run_Alert.jpg)
+
+#### Backfill Initialization, Execution and Completion
+The images below show the point of initializing the Dag for backfills (in case of missed dag runs), during execution
+and when the backfill execution was successfully completed (which includes details of the timeframe - from and to period
+for the backfill and the duration it took for the run to be completed).
+![Airflow UI Dags View](images/Backfill_Initialization.jpg)
+![Airflow UI Dags View](images/Backfill_Execution.jpg)
+![Airflow UI Dags View](images/Backfill_Completion.jpg)
+
+### Key Design Decisions
+
+**Scheduling**
+The DAG is scheduled to run at 1 am everyday using the cron expression `0 1 * * *` . This is to prevent manual
+triggers at any point. The pipeline runs fully automatically in production.
+ 
+**Retries**
+Every task is configured with 3 retries and a 15-second retry delay which is exponentially increased between each failed attempt
+i.e the wait period for a retry is doubled with respect to the retry delay period of the previously failed attempt, therefore giving the 
+failed task ample time to recover from any minor glitch that must have resulted in the task failing which includes transient failures such as network timeouts, temporary Airbyte unavailability, or brief BigQuery disruptions, without requiring any human intervention.
+
+**Failure Handling**
+A custom `on_failure_callback` defined in a dedicated `callbacks.py` file fires automatically whenever any task in the DAG fails. It sends an email alert containing the DAG name, the failed task ID, the execution date, and a direct link to the task logs for quick debugging. Separating this into its own file keeps the main DAG clean and makes the callback reusable across multiple DAGs in future.
+ 
+**Testing Per Layer**
+dbt tests run immediately after each individual layer — staging, intermediate — rather than once at the very end of the pipeline.
+This means a data quality issue is caught at the earliest possible point and downstream layers are never built on top of bad data.
+
+**Separation of Concerns**
+The failure callback logic lives in its own `callbacks.py` file rather than inline in the DAG. The alert email address is stored as an environment variable (`ALERT_EMAIL`) in a `.env` file and never hardcoded, ensuring no sensitive information is exposed when pushing
+to GitHub.
+
+**Backfills**
+`catchup=True` is configured on the DAG, meaning Airflow will automatically backfill any scheduled runs that were missed if the pipeline was down. Backfills can also be triggered manually via the Airflow UI when needed.
+
+**Monitoring**
+The DAG includes descriptive tags (`beejanride`, `analytics`), a `doc_md` docstring visible in the Airflow UI, and email alerts for both success and failure thereby giving full visibility into every run without needing to log into the Airflow UI manually.
+
+### Idempotency In Airflow
+This means that running the same pipeline dag multiple times produces the same result with no duplicate data and no side effects from re-runs. Whether the DAG runs once or ten times for the same time period, the output should always be identical.
+In this project, the dag argument max_active_runs=1 on the DAG ensures that only one DAG run can execute at any given time. If a scheduled run is still in progress when the next one is due to start, the new one waits. This prevents two runs from writing to the same BigQuery tables simultaneously, which would cause data corruption or duplication.
+ 
+
 ## Future Improvements
-This modelling project was a learning curve for me and not one devoid of areas requiring improvements and future expansion. One that easily comes to mind is having a vehicle dimension table that possesses attributes regarding the vehicle type, licence number, model etc used for a trip -- since a vehicle id is already present in the fact table. It will also make a lot of sense to orchestrate the whole workflow using an orchestrator for a seamless process.
+This modelling project was a learning curve for me and not one devoid of areas requiring improvements and future expansion. One that easily comes to mind is having a vehicle dimension table that possesses attributes regarding the vehicle type, licence number, model etc used for a trip -- since a vehicle id is already present in the fact table.
 
 ## Sample Analytical Queries
 Some of the analytical queries that can be used to get reporting insights from the final serving models includes:

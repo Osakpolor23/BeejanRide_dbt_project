@@ -1,6 +1,6 @@
 # BeejanRide Analytics Modelling Project
 BeejanRide is a fast‑growing UK mobility startup operating in 5 cities, offering ride‑hailing, airport transfers, and scheduled corporate rides.
-This project implements a scalable, well‑tested, documented, and production‑ready analytics platform using dbt on top of a modern data stack. Bigquery was used as the data warehouse.
+This project implements a fully orchestrated, scalable, well‑tested, documented, and production‑ready analytics platform using dbt on top of a modern data stack. Bigquery was used as the data warehouse and the whole pipeline was fully orchestrated using apache airflow.
 
 ### Project Structure
 
